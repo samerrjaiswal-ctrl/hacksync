@@ -159,3 +159,5 @@ dist-ssr
 
 # Root-level generated npm CLI shims
 /.bin/
+
+.vercel
