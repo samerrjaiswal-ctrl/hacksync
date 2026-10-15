@@ -1,0 +1,17 @@
+{
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/groq-status",
+      "destination": "/api/groq-status"
+    },
+    {
+      "source": "/api/groq-analyze",
+      "destination": "/api/groq-analyze"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { DemoVideoData, GoogleDriveStatus } from '../types';
+import type { DemoVideoData, GoogleDriveStatus, VideoSharingAccess } from '../types';
 
 /**
  * Fetch Google Drive connection status for the team
@@ -132,6 +132,7 @@ export async function fetchTeamVideos(teamId: string): Promise<DemoVideoData[]> 
     webViewLink: row.web_view_link,
     sizeBytes: Number(row.size_bytes || 0),
     mimeType: row.mime_type || 'video/mp4',
+    sharingAccess: (row.sharing_access as VideoSharingAccess) || 'restricted',
     createdAt: new Date(row.created_at)
   }));
 }
@@ -141,13 +142,15 @@ export async function fetchTeamVideos(teamId: string): Promise<DemoVideoData[]> 
  * 1. Obtains Resumable Upload session URL from Google Drive API
  * 2. Streams video directly to Google Drive (tracks real progress)
  * 3. Finalizes metadata in Supabase and extracts real webViewLink
+ * 4. Supports optional Hackathon submission sharing ("anyone_with_link")
  */
 export async function uploadDemoVideo(
   teamId: string,
   file: File,
   title: string,
   description: string,
-  onProgress: (progressPct: number) => void
+  onProgress: (progressPct: number) => void,
+  sharingAccess: VideoSharingAccess = 'restricted'
 ): Promise<DemoVideoData> {
   // 1. Initialize resumable upload session via Edge Function
   const { data: sessionData, error: sessionErr } = await supabase.functions.invoke('google-drive', {
@@ -162,42 +165,102 @@ export async function uploadDemoVideo(
   });
 
   if (sessionErr || !sessionData?.uploadUrl) {
-    throw new Error(sessionErr?.message || sessionData?.error || 'Failed to initialize Google Drive upload session. Ensure Google Drive is connected.');
+    let msg = sessionErr?.message || sessionData?.error || 'Failed to initialize Google Drive upload session. Ensure Google Drive is connected.';
+    if ((sessionErr as any)?.context) {
+      try {
+        const ctx = (sessionErr as any).context;
+        let rawBody = '';
+        if (typeof ctx.json === 'function') {
+          const body = await ctx.json();
+          rawBody = JSON.stringify(body);
+          msg = body.details || body.error || body.message || rawBody;
+        } else if (typeof ctx === 'object') {
+          rawBody = JSON.stringify(ctx);
+          msg = ctx.details || ctx.error || ctx.message || rawBody;
+        } else if (typeof ctx === 'string') {
+          rawBody = ctx;
+          try {
+            const parsed = JSON.parse(ctx);
+            msg = parsed.details || parsed.error || parsed.message || ctx;
+          } catch {
+            msg = ctx;
+          }
+        }
+
+        if (rawBody.includes('SERVICE_DISABLED') || rawBody.includes('has not been used in project')) {
+          msg = 'Google Drive API is not enabled in your Google Cloud project! Please enable it at: https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=251655105969 then click Retry Upload.';
+        } else if (rawBody.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || rawBody.includes('insufficientPermissions')) {
+          msg = 'Google Drive access was not checked during login. Please reconnect Google Drive and make sure to check the Google Drive permission box.';
+        } else if (rawBody.includes('UNAUTHENTICATED') || rawBody.includes('Invalid Credentials') || rawBody.includes('authError')) {
+          msg = 'Google session needs a fresh token because the Drive API was just enabled. Please click below to reconnect Google Drive.';
+        }
+      } catch {
+        // keep fallback msg
+      }
+    }
+    throw new Error(msg);
   }
 
   const uploadUrl = sessionData.uploadUrl;
 
-  // 2. Stream video file directly to Google Drive via XMLHttpRequest for accurate progress tracking
-  const googleFile = await new Promise<{ id: string }>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
+  // 2. Stream video file directly to Google Drive
+  let googleFile: { id: string };
+  try {
+    googleFile = await new Promise<{ id: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) {
-        const pct = Math.min(98, Math.round((event.loaded / event.total) * 100));
-        onProgress(pct);
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status === 200 || xhr.status === 201) {
-        try {
-          const resp = JSON.parse(xhr.responseText);
-          resolve(resp);
-        } catch {
-          reject(new Error('Invalid response from Google Drive'));
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const pct = Math.min(98, Math.round((event.loaded / event.total) * 100));
+          onProgress(pct);
         }
-      } else {
-        reject(new Error(`Google Drive upload failed with HTTP status ${xhr.status}: ${xhr.statusText}`));
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error('Invalid response from Google Drive'));
+          }
+        } else {
+          reject(new Error(`Google Drive upload failed with HTTP status ${xhr.status}: ${xhr.statusText}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('XHR_NETWORK_ERROR'));
+      xhr.ontimeout = () => reject(new Error('Upload to Google Drive timed out'));
+
+      xhr.open('PUT', uploadUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+      xhr.setRequestHeader('Content-Range', `bytes 0-${file.size - 1}/${file.size}`);
+      xhr.send(file);
+    });
+  } catch (err: any) {
+    if (err.message === 'XHR_NETWORK_ERROR') {
+      try {
+        onProgress(50);
+        const fRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type || 'video/mp4',
+            'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
+          },
+          body: file
+        });
+
+        if (fRes.ok || fRes.status === 200 || fRes.status === 201) {
+          googleFile = await fRes.json();
+        } else {
+          throw new Error(`Upload failed with HTTP status ${fRes.status}`);
+        }
+      } catch (fErr: any) {
+        throw new Error('Network error uploading to Google Drive. Please ensure "http://localhost:5173" is in Authorized JavaScript origins in Google Cloud Console.');
       }
-    };
-
-    xhr.onerror = () => reject(new Error('Network error occurred while uploading to Google Drive'));
-    xhr.ontimeout = () => reject(new Error('Upload to Google Drive timed out'));
-
-    xhr.open('PUT', uploadUrl, true);
-    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
-    xhr.send(file);
-  });
+    } else {
+      throw err;
+    }
+  }
 
   onProgress(99);
 
@@ -210,7 +273,8 @@ export async function uploadDemoVideo(
       title,
       description,
       sizeBytes: file.size,
-      mimeType: file.type || 'video/mp4'
+      mimeType: file.type || 'video/mp4',
+      sharingAccess
     }
   });
 
@@ -232,7 +296,38 @@ export async function uploadDemoVideo(
     webViewLink: row.web_view_link,
     sizeBytes: Number(row.size_bytes || 0),
     mimeType: row.mime_type || 'video/mp4',
+    sharingAccess: (row.sharing_access as VideoSharingAccess) || sharingAccess || 'restricted',
     createdAt: new Date(row.created_at)
+  };
+}
+
+/**
+ * Update sharing permission for hackathon submissions
+ * - "restricted": only people with permission
+ * - "anyone_with_link": public viewer for hackathon judges & organizers
+ */
+export async function updateVideoSharing(
+  teamId: string,
+  videoId: string,
+  sharingAccess: VideoSharingAccess
+): Promise<{ success: boolean; sharingAccess: VideoSharingAccess; webViewLink: string }> {
+  const { data, error } = await supabase.functions.invoke('google-drive', {
+    body: {
+      action: 'update-sharing',
+      teamId,
+      videoId,
+      sharingAccess
+    }
+  });
+
+  if (error || !data?.success) {
+    throw new Error(error?.message || data?.error || data?.details || 'Failed to update video sharing permissions.');
+  }
+
+  return {
+    success: true,
+    sharingAccess: data.sharingAccess,
+    webViewLink: data.webViewLink
   };
 }
 
@@ -257,4 +352,134 @@ export async function deleteDemoVideo(teamId: string, videoId: string): Promise<
   }
 
   return true;
+}
+
+/**
+ * Probe Google Drive direct thumbnail to verify if transcoding has finished.
+ * Google Drive generates web thumbnails only after transcoding the video.
+ */
+export async function probeGoogleDriveReadiness(googleFileId: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timeout = setTimeout(() => {
+      img.onload = null;
+      img.onerror = null;
+      resolve(false);
+    }, 3500);
+
+    img.onload = () => {
+      clearTimeout(timeout);
+      // Thumbnail loaded successfully: Google Drive video has finished processing
+      resolve(true);
+    };
+
+    img.onerror = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+
+    img.src = `https://drive.google.com/thumbnail?id=${googleFileId}&sz=w800&t=${Date.now()}`;
+  });
+}
+
+/**
+ * Check Google Drive video processing and playback readiness
+ */
+export async function checkVideoProcessing(
+  teamId: string, 
+  googleFileId: string
+): Promise<{ 
+  isProcessing: boolean; 
+  isPlayable: boolean; 
+  thumbnailLink?: string | null; 
+  webViewLink?: string | null;
+  videoMediaMetadata?: any | null;
+  error?: string | null;
+}> {
+  const fallbackThumbnail = `https://drive.google.com/thumbnail?id=${googleFileId}&sz=w800`;
+  const fallbackWebView = `https://drive.google.com/file/d/${googleFileId}/view?usp=drivesdk`;
+
+  try {
+    // 1. Try checking via backend Edge Function
+    const { data, error } = await supabase.functions.invoke('google-drive', {
+      body: { action: 'check-processing', teamId, googleFileId }
+    });
+
+    if (!error && data) {
+      if (data.isPlayable) {
+        return {
+          isProcessing: false,
+          isPlayable: true,
+          thumbnailLink: data.thumbnailLink || fallbackThumbnail,
+          webViewLink: data.webViewLink || fallbackWebView,
+          videoMediaMetadata: data.videoMediaMetadata || null,
+          error: null
+        };
+      }
+
+      if (data.isProcessing) {
+        // Also probe directly from client in case backend check is conservative or rate-limited
+        const isProbePlayable = await probeGoogleDriveReadiness(googleFileId);
+        if (isProbePlayable) {
+          return {
+            isProcessing: false,
+            isPlayable: true,
+            thumbnailLink: fallbackThumbnail,
+            webViewLink: fallbackWebView,
+            error: null
+          };
+        }
+
+        return {
+          isProcessing: true,
+          isPlayable: false,
+          thumbnailLink: data.thumbnailLink || fallbackThumbnail,
+          videoMediaMetadata: data.videoMediaMetadata || null,
+          error: null
+        };
+      }
+    }
+
+    // 2. If Edge Function returned error or non-2xx, run direct browser thumbnail probe
+    console.warn('Edge function check returned status error, verifying with direct Google Drive probe:', error?.message);
+    const isProbePlayable = await probeGoogleDriveReadiness(googleFileId);
+    if (isProbePlayable) {
+      return {
+        isProcessing: false,
+        isPlayable: true,
+        thumbnailLink: fallbackThumbnail,
+        webViewLink: fallbackWebView,
+        error: null
+      };
+    }
+
+    // If neither verified yet, treat as still in progress rather than a hard failure
+    return {
+      isProcessing: true,
+      isPlayable: false,
+      thumbnailLink: fallbackThumbnail,
+      error: null
+    };
+
+  } catch (err: any) {
+    console.warn('Network exception checking video processing, falling back to direct probe:', err);
+    const isProbePlayable = await probeGoogleDriveReadiness(googleFileId);
+    if (isProbePlayable) {
+      return {
+        isProcessing: false,
+        isPlayable: true,
+        thumbnailLink: fallbackThumbnail,
+        webViewLink: fallbackWebView,
+        error: null
+      };
+    }
+
+    return {
+      isProcessing: true,
+      isPlayable: false,
+      error: null
+    };
+  }
 }

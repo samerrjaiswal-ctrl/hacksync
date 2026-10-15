@@ -1,7 +1,6 @@
-import * as React from 'react';
-import { FolderSync, Video, Signal, X } from 'lucide-react';
+import { FolderSync, Video, Signal, X, GitBranch, Presentation } from 'lucide-react';
 
-export type WorkspaceTab = 'files' | 'video';
+export type WorkspaceTab = 'files' | 'video' | 'git' | 'ppt';
 
 interface WorkspaceSidebarProps {
   activeTab: WorkspaceTab;
@@ -9,6 +8,8 @@ interface WorkspaceSidebarProps {
   filesCount: number;
   peersCount: number;
   teamName: string;
+  isOpen?: boolean;
+  onClose?: () => void;
   isOpenOnMobile?: boolean;
   onCloseMobile?: () => void;
 }
@@ -19,51 +20,63 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   filesCount,
   peersCount,
   teamName,
-  isOpenOnMobile = false,
+  isOpen = true,
+  onClose,
+  isOpenOnMobile,
   onCloseMobile,
 }) => {
+  const isMenuOpen = isOpen ?? isOpenOnMobile ?? true;
+  const handleClose = onClose || onCloseMobile;
+
   const handleSelectTab = (tab: WorkspaceTab) => {
     onSelectTab(tab);
-    if (onCloseMobile) onCloseMobile();
+    if (typeof window !== 'undefined' && window.innerWidth < 768 && handleClose) {
+      handleClose();
+    }
   };
 
   return (
     <>
       {/* Mobile backdrop */}
-      {isOpenOnMobile && (
+      {isMenuOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
-          onClick={onCloseMobile}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300"
+          onClick={handleClose}
           aria-hidden="true"
         />
       )}
 
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 max-w-[80vw] bg-[#0A0F1D] border-r border-[#192238] flex flex-col justify-between h-screen select-none shadow-2xl transition-transform duration-300 ease-in-out
-        ${isOpenOnMobile ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:static md:w-64 md:shrink-0 md:sticky md:top-0 md:z-40
+        fixed inset-y-0 left-0 z-50 bg-[#0A0F1D] border-r border-[#192238] flex flex-col justify-between h-screen select-none shadow-2xl transition-all duration-300 ease-in-out overflow-hidden
+        ${isMenuOpen 
+          ? 'w-72 max-w-[85vw] md:w-64 translate-x-0 opacity-100' 
+          : 'w-0 md:w-0 -translate-x-full md:-translate-x-full opacity-0 pointer-events-none border-r-0'}
+        md:static md:shrink-0 md:sticky md:top-0 md:z-40
       `}>
-        {/* Top Header with Logo & Mobile Close */}
-        <div className="flex flex-col">
-          <div className="h-16 px-5 flex items-center justify-between border-b border-[#192238]/80 bg-[#080C18]/90">
-            <div className="relative flex items-center">
-              <img 
-                src="/logo.png" 
-                alt="HackSync Logo" 
-                className="h-8 w-auto drop-shadow-[0_0_12px_rgba(0,196,255,0.4)]" 
-              />
+        {/* Fixed Width Inner Container to prevent layout compression during slide */}
+        <div className="w-72 max-w-[85vw] md:w-64 flex flex-col justify-between h-full shrink-0">
+          {/* Top Header with Logo & Close Button */}
+          <div className="flex flex-col">
+            <div className="h-16 px-5 flex items-center justify-between border-b border-[#192238]/80 bg-[#080C18]/90">
+              <div className="relative flex items-center">
+                <img 
+                  src="/logo.png" 
+                  alt="HackSync Logo" 
+                  className="h-8 w-auto drop-shadow-[0_0_12px_rgba(0,196,255,0.4)]" 
+                />
+              </div>
+              {handleClose && (
+                <button 
+                  type="button"
+                  onClick={handleClose}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center"
+                  title="Close slide menu"
+                  aria-label="Close navigation"
+                >
+                  <X size={18} />
+                </button>
+              )}
             </div>
-            {onCloseMobile && (
-              <button 
-                type="button"
-                onClick={onCloseMobile}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/60 md:hidden transition-colors"
-                aria-label="Close navigation"
-              >
-                <X size={20} />
-              </button>
-            )}
-          </div>
 
           {/* Navigation Section */}
           <div className="p-4 flex flex-col gap-3">
@@ -160,6 +173,96 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
               </span>
             </div>
           </button>
+
+          {/* BOX 3: Git Connect */}
+          <button
+            id="sidebar-nav-git"
+            onClick={() => handleSelectTab('git')}
+            className={`group relative text-left w-full p-3.5 rounded-xl transition-all cursor-pointer flex flex-col gap-2 ${
+              activeTab === 'git'
+                ? 'bg-gradient-to-r from-cyan-950/40 via-blue-950/30 to-[#0F172A] border border-cyan-400/60 shadow-[0_0_25px_rgba(6,182,212,0.2)] text-white'
+                : 'bg-[#0E1528]/50 hover:bg-[#131C35] border border-slate-800/80 hover:border-slate-700/80 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {/* Active Glow Pill */}
+            {activeTab === 'git' && (
+              <span className="absolute left-0 top-3 bottom-3 w-1 bg-cyan-400 rounded-r-full shadow-[0_0_8px_#22d3ee]"></span>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+                  activeTab === 'git'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-400/40 shadow-inner'
+                    : 'bg-slate-800/70 text-slate-400 group-hover:text-cyan-300'
+                }`}>
+                  <GitBranch size={18} />
+                </div>
+                <div>
+                  <div className={`font-semibold text-sm tracking-tight ${activeTab === 'git' ? 'text-white' : 'text-slate-200'}`}>
+                    Git Connect
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-normal">
+                    Repo & Team
+                  </div>
+                </div>
+              </div>
+
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono-code font-semibold flex items-center gap-1 ${
+                activeTab === 'git'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                  : 'bg-slate-800/80 text-slate-400'
+              }`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span>GITHUB</span>
+              </span>
+            </div>
+          </button>
+
+          {/* BOX 4: PPT Builder */}
+          <button
+            id="sidebar-nav-ppt"
+            onClick={() => handleSelectTab('ppt')}
+            className={`group relative text-left w-full p-3.5 rounded-xl transition-all cursor-pointer flex flex-col gap-2 ${
+              activeTab === 'ppt'
+                ? 'bg-gradient-to-r from-cyan-950/40 via-blue-950/30 to-[#0F172A] border border-cyan-400/60 shadow-[0_0_25px_rgba(6,182,212,0.2)] text-white'
+                : 'bg-[#0E1528]/50 hover:bg-[#131C35] border border-slate-800/80 hover:border-slate-700/80 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {/* Active Glow Pill */}
+            {activeTab === 'ppt' && (
+              <span className="absolute left-0 top-3 bottom-3 w-1 bg-cyan-400 rounded-r-full shadow-[0_0_8px_#22d3ee]"></span>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+                  activeTab === 'ppt'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-400/40 shadow-inner'
+                    : 'bg-slate-800/70 text-slate-400 group-hover:text-cyan-300'
+                }`}>
+                  <Presentation size={18} />
+                </div>
+                <div>
+                  <div className={`font-semibold text-sm tracking-tight ${activeTab === 'ppt' ? 'text-white' : 'text-slate-200'}`}>
+                    PPT Builder
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-normal">
+                    10-Slide Pitch
+                  </div>
+                </div>
+              </div>
+
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono-code font-semibold flex items-center gap-1 ${
+                activeTab === 'ppt'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                  : 'bg-slate-800/80 text-slate-400'
+              }`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span>DECK</span>
+              </span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -182,6 +285,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           </div>
           <strong className="text-white font-mono-code">{peersCount} Active</strong>
         </div>
+      </div>
       </div>
     </aside>
     </>

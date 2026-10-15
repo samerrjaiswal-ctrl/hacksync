@@ -6,10 +6,12 @@ import { FileToolbar } from './FileToolbar';
 import { FileGrid } from './FileGrid';
 import type { FileData, MemberData } from '../types';
 import { supabase } from '../lib/supabase';
-import { Loader2, Info, AlertCircle, Menu } from 'lucide-react';
+import { Info, AlertCircle, Menu } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { WorkspaceSidebar, type WorkspaceTab } from './WorkspaceSidebar';
 import { DemoVideoLibrary } from './DemoVideoLibrary';
+import { GitConnectDashboard } from './GitConnectDashboard';
+import { PptBuilderDashboard } from './PptBuilder/PptBuilderDashboard';
 
 interface TeamWorkspaceProps {
   teamId: string;
@@ -72,7 +74,12 @@ export const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, 
   const [sortOption, setSortOption] = useState('newest');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return true;
+  });
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -513,15 +520,72 @@ export const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, 
 
   if (isLoading) {
     return (
-      <div className="w-full min-h-screen bg-surface flex flex-col items-center justify-center text-secondary gap-3">
-        <Loader2 size={32} className="animate-spin text-primary" />
-        <span className="font-label-md">Syncing workspace manifest...</span>
+      <div className="w-full min-h-screen bg-surface flex view-transition-container">
+        {/* Skeleton Sidebar */}
+        <aside className="w-64 h-screen bg-surface-container-lowest border-r border-outline-variant flex flex-col p-4 shrink-0 hidden md:flex">
+          <div className="flex items-center gap-3 px-2 py-3 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-surface-container-high skeleton-shimmer" />
+            <div className="h-5 w-28 bg-surface-container-high rounded skeleton-shimmer" />
+          </div>
+          <div className="flex flex-col gap-2 flex-1">
+            <div className="h-10 w-full rounded-xl bg-surface-container-high/60 skeleton-shimmer" />
+            <div className="h-10 w-full rounded-xl bg-surface-container-high/40 skeleton-shimmer" />
+            <div className="h-10 w-full rounded-xl bg-surface-container-high/40 skeleton-shimmer" />
+            <div className="h-10 w-full rounded-xl bg-surface-container-high/40 skeleton-shimmer" />
+          </div>
+        </aside>
+
+        {/* Skeleton Content */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+          <header className="h-14 bg-surface-container-lowest border-b border-outline-variant px-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-6 h-6 rounded bg-surface-container-high skeleton-shimmer" />
+              <div className="h-4 w-32 bg-surface-container-high rounded skeleton-shimmer" />
+            </div>
+            <div className="h-6 w-24 bg-surface-container-high rounded skeleton-shimmer" />
+          </header>
+
+          <main className="w-full px-6 py-6 max-w-7xl mx-auto flex-1 flex flex-col gap-6">
+            {/* Header Card Skeleton */}
+            <div className="w-full h-32 rounded-2xl bg-surface-container-lowest border border-outline-variant p-6 flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="h-6 w-48 bg-surface-container-high rounded skeleton-shimmer" />
+                <div className="flex gap-2">
+                  <div className="w-8 h-8 rounded-full bg-surface-container-high skeleton-shimmer" />
+                  <div className="w-8 h-8 rounded-full bg-surface-container-high skeleton-shimmer" />
+                </div>
+              </div>
+              <div className="h-4 w-64 bg-surface-container-high/60 rounded skeleton-shimmer" />
+            </div>
+
+            {/* Toolbar & Grid Skeleton */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="h-10 w-72 bg-surface-container-lowest rounded-xl border border-outline-variant skeleton-shimmer" />
+              <div className="h-10 w-32 bg-surface-container-lowest rounded-xl border border-outline-variant skeleton-shimmer" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-44 rounded-xl bg-surface-container-lowest border border-outline-variant p-4 flex flex-col justify-between shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-surface-container-high skeleton-shimmer" />
+                    <div className="flex flex-col gap-1.5 flex-1">
+                      <div className="h-4 w-3/4 bg-surface-container-high rounded skeleton-shimmer" />
+                      <div className="h-3 w-1/2 bg-surface-container-high/60 rounded skeleton-shimmer" />
+                    </div>
+                  </div>
+                  <div className="h-8 w-full rounded-lg bg-surface-container-high/50 skeleton-shimmer" />
+                </div>
+              ))}
+            </div>
+          </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full min-h-screen bg-surface flex">
+    <div className="w-full min-h-screen bg-surface flex view-transition-container">
       {/* Left Menu Bar with HackSync Brand Color & Logo */}
       <WorkspaceSidebar 
         activeTab={activeTab}
@@ -529,8 +593,8 @@ export const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, 
         filesCount={files.length}
         peersCount={peers.length}
         teamName={actualTeamName}
-        isOpenOnMobile={isMobileSidebarOpen}
-        onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       {/* Right Content Area */}
@@ -540,18 +604,21 @@ export const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, 
           <div className="w-full h-14 px-4 sm:px-gutter-desktop flex items-center justify-between gap-space-md">
             <div className="flex items-center gap-2 sm:gap-space-md">
               <button
-                id="mobile-nav-toggle"
+                id="sidebar-toggle-btn"
                 type="button"
-                onClick={() => setIsMobileSidebarOpen(prev => !prev)}
-                className="p-1.5 text-on-surface-variant hover:text-primary rounded-lg hover:bg-surface-container md:hidden transition-colors cursor-pointer"
+                onClick={() => setIsSidebarOpen(prev => !prev)}
+                className="p-1.5 text-on-surface-variant hover:text-primary rounded-lg hover:bg-surface-container transition-all duration-200 cursor-pointer flex items-center justify-center border border-transparent hover:border-outline-variant/60"
+                title={isSidebarOpen ? "Close slide menu" : "Open slide menu"}
                 aria-label="Toggle navigation menu"
               >
-                <Menu size={20} />
+                <Menu size={20} className={`transition-transform duration-300 ${isSidebarOpen ? 'text-primary' : ''}`} />
               </button>
               <div className="flex items-center gap-space-xs font-mono-metadata text-mono-metadata text-on-surface-variant">
                 <span className="px-space-xs py-0.5 bg-surface-container rounded text-on-surface font-mono-code text-mono-code font-semibold">SPRINT-24</span>
                 <span className="text-outline">/</span>
-                <span className="font-semibold text-primary">{activeTab === 'files' ? 'file-share' : 'demo-video-library'}</span>
+                <span className="font-semibold text-primary transition-colors duration-200">
+                  {activeTab === 'files' ? 'file-share' : activeTab === 'video' ? 'demo-video-library' : activeTab === 'git' ? 'git-connect' : 'ppt-builder'}
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-space-lg">
@@ -584,62 +651,121 @@ export const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, 
             isLeaving={isLeaving}
           />
 
-          {/* SCREEN 1: File Share */}
-          {activeTab === 'files' ? (
-            <div className="flex flex-col gap-1 animate-fade-in">
-              <UploadZone 
-                onUpload={handleUpload}
-                isUploading={isUploading}
-                uploadProgress={uploadProgress}
-                uploadFileName={uploadFileName}
-                cancelUpload={cancelUpload}
-              />
-
-              {showP2PNotice && (
-                <div className="mb-4 bg-primary-container text-on-primary-container p-3 rounded flex items-center gap-2 text-label-sm animate-fade-in">
-                  <Info size={16} />
-                  <span>File announced to the network. You must keep this tab open for others to download it.</span>
-                </div>
-              )}
-
-              <FileToolbar 
-                searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                typeFilter={typeFilter}
-                setTypeFilter={setTypeFilter}
-                uploaderFilter={uploaderFilter}
-                setUploaderFilter={setUploaderFilter}
-                sortOption={sortOption}
-                setSortOption={setSortOption}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-                uploaders={uploaders}
-              />
-
-              <div className="relative min-h-[460px]">
-                <FileGrid 
-                  files={filteredAndSortedFiles} 
-                  viewMode={viewMode} 
-                  currentUserId={currentUserId}
-                  peers={peers}
-                  transfers={transfers}
-                  onRequestFile={requestFile}
-                  localKeys={localKeys}
-                  onDeleteFile={handleDeleteFile}
-                  isLeader={isLeader}
+          {/* Tab Content Container with Smooth Transitions */}
+          <div className="relative w-full flex-1">
+            {/* SCREEN 1: File Share */}
+            <div 
+              id="tab-panel-files"
+              role="tabpanel"
+              aria-labelledby="sidebar-nav-files"
+              className={`w-full ${
+                activeTab === 'files'
+                  ? 'block animate-tab-enter'
+                  : 'hidden'
+              }`}
+            >
+              <div className="flex flex-col gap-1">
+                <UploadZone 
+                  onUpload={handleUpload}
+                  isUploading={isUploading}
+                  uploadProgress={uploadProgress}
+                  uploadFileName={uploadFileName}
+                  cancelUpload={cancelUpload}
                 />
+
+                {showP2PNotice && (
+                  <div className="mb-4 bg-primary-container text-on-primary-container p-3 rounded flex items-center gap-2 text-label-sm animate-fade-in">
+                    <Info size={16} />
+                    <span>File announced to the network. You must keep this tab open for others to download it.</span>
+                  </div>
+                )}
+
+                <FileToolbar 
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  typeFilter={typeFilter}
+                  setTypeFilter={setTypeFilter}
+                  uploaderFilter={uploaderFilter}
+                  setUploaderFilter={setUploaderFilter}
+                  sortOption={sortOption}
+                  setSortOption={setSortOption}
+                  viewMode={viewMode}
+                  setViewMode={setViewMode}
+                  uploaders={uploaders}
+                />
+
+                <div className="relative min-h-[460px]">
+                  <FileGrid 
+                    files={filteredAndSortedFiles} 
+                    viewMode={viewMode} 
+                    currentUserId={currentUserId}
+                    peers={peers}
+                    transfers={transfers}
+                    onRequestFile={requestFile}
+                    localKeys={localKeys}
+                    onDeleteFile={handleDeleteFile}
+                    isLeader={isLeader}
+                  />
+                </div>
               </div>
             </div>
-          ) : (
-            /* SCREEN 2: Google Drive Demo Video Library */
-            <DemoVideoLibrary 
-              teamId={teamId}
-              teamName={actualTeamName}
-              members={members}
-              currentUserId={currentUserId}
-              isLeader={isLeader}
-            />
-          )}
+
+            {/* SCREEN 2: Google Drive Demo Video Library */}
+            <div 
+              id="tab-panel-video"
+              role="tabpanel"
+              aria-labelledby="sidebar-nav-video"
+              className={`w-full ${
+                activeTab === 'video'
+                  ? 'block animate-tab-enter'
+                  : 'hidden'
+              }`}
+            >
+              <DemoVideoLibrary 
+                teamId={teamId}
+                teamName={actualTeamName}
+                members={members}
+                currentUserId={currentUserId}
+                isLeader={isLeader}
+              />
+            </div>
+
+            {/* SCREEN 3: Git Connect Dashboard */}
+            <div 
+              id="tab-panel-git"
+              role="tabpanel"
+              aria-labelledby="sidebar-nav-git"
+              className={`w-full ${
+                activeTab === 'git'
+                  ? 'block animate-tab-enter'
+                  : 'hidden'
+              }`}
+            >
+              <GitConnectDashboard 
+                teamId={teamId}
+                teamName={actualTeamName}
+                members={members}
+                currentUserId={currentUserId}
+                isLeader={isLeader}
+              />
+            </div>
+
+            {/* SCREEN 4: PPT Builder Dashboard */}
+            <div 
+              id="tab-panel-ppt"
+              role="tabpanel"
+              aria-labelledby="sidebar-nav-ppt"
+              className={`w-full ${
+                activeTab === 'ppt'
+                  ? 'block animate-tab-enter'
+                  : 'hidden'
+              }`}
+            >
+              <PptBuilderDashboard 
+                teamName={actualTeamName}
+              />
+            </div>
+          </div>
         </main>
       </div>
     </div>

@@ -2,9 +2,10 @@ import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { CreateTeam } from './CreateTeam';
 import { JoinTeam } from './JoinTeam';
-import { ShieldCheck, History, ArrowRight, Loader2, AlertCircle, Trash2 } from 'lucide-react';
+import { ShieldCheck, History, ArrowRight, AlertCircle, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Session } from '@supabase/supabase-js';
+import Iridescence from './Iridescence';
 
 interface TeamLandingProps {
   onEnterWorkspace: (teamId: string, teamName?: string) => void;
@@ -93,11 +94,37 @@ export const TeamLanding: React.FC<TeamLandingProps> = ({
   };
 
   return (
-    <main className="w-full min-h-screen flex flex-col items-center justify-center p-space-md bg-surface py-12">
-      <div className="flex flex-col w-full max-w-5xl mx-auto px-4 items-center">
+    <main className="relative w-full min-h-screen flex flex-col items-center justify-center p-space-md py-12 overflow-hidden bg-surface">
+      {/* Iridescence WebGL Background with User Parameters */}
+      <div className="absolute inset-0 z-0 pointer-events-auto overflow-hidden">
+        <Iridescence
+          color="#8099cc"
+          hueShift={0}
+          saturation={1}
+          brightness={1.5}
+          contrast={1}
+          speed={1}
+          scale={1}
+          detail={8}
+          warp={1}
+          rotation={0}
+          mouseReact={true}
+          amplitude={0.1}
+          stir={0.5}
+          sheen={0.3}
+          clickSwirl={true}
+          grain={0}
+          fade={0}
+          className="w-full h-full"
+        />
+        {/* Soft frosted gradient overlay so cards, badges and text remain ultra-readable */}
+        <div className="absolute inset-0 bg-white/35 dark:bg-[#070b14]/45 pointer-events-none" />
+      </div>
+
+      <div className="relative z-10 flex flex-col w-full max-w-5xl mx-auto px-4 items-center">
         
         {/* Top Identity Area */}
-        <div className="flex flex-col items-center text-center max-w-2xl mt-8">
+        <div className="dom-stagger-1 flex flex-col items-center text-center max-w-2xl mt-8">
           <div className="flex items-center gap-3 mb-4">
             <img src="/logo.png" alt="HackSync Logo" className="h-14 w-auto drop-shadow-sm" />
             <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-mono-code uppercase font-semibold mt-2">v2.4 Live</span>
@@ -120,7 +147,7 @@ export const TeamLanding: React.FC<TeamLandingProps> = ({
         </div>
 
         {/* Dual Action Modes */}
-        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+        <div className="dom-stagger-2 w-full grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           <CreateTeam 
             onCreate={(name, id) => {
               onEnterWorkspace(id, name);
@@ -140,20 +167,29 @@ export const TeamLanding: React.FC<TeamLandingProps> = ({
 
         {/* Recent Visited Workspaces Panel */}
         {isLoading ? (
-          <div className="w-full mt-6 max-w-3xl bg-surface-container-lowest rounded-xl p-6 shadow-sm flex items-center justify-center text-secondary">
-            <Loader2 size={20} className="animate-spin" />
-            <span className="ml-2 font-label-md">Loading your workspaces...</span>
+          <div className="dom-stagger-3 w-full mt-6 max-w-3xl flex flex-col gap-3">
+            <div className="h-5 w-36 bg-surface-container-high/60 rounded animate-pulse" />
+            <div className="w-full bg-surface-container-lowest/80 backdrop-blur-sm rounded-xl p-5 border border-outline-variant flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-surface-container-high skeleton-shimmer" />
+                <div className="flex flex-col gap-2">
+                  <div className="h-4 w-44 bg-surface-container-high rounded skeleton-shimmer" />
+                  <div className="h-3 w-24 bg-surface-container-high rounded skeleton-shimmer" />
+                </div>
+              </div>
+              <div className="h-8 w-32 bg-surface-container-high rounded skeleton-shimmer" />
+            </div>
           </div>
         ) : error ? (
-          <div className="w-full mt-6 max-w-3xl bg-error-container text-on-error-container rounded-xl p-4 flex items-center gap-2 text-body-sm">
+          <div className="dom-stagger-3 w-full mt-6 max-w-3xl bg-error-container text-on-error-container rounded-xl p-4 flex items-center gap-2 text-body-sm shadow-sm">
             <AlertCircle size={18} />
             <span>{error}</span>
           </div>
         ) : recentTeams.length > 0 ? (
-          <div className="w-full mt-6 max-w-3xl flex flex-col gap-3">
+          <div className="dom-stagger-3 w-full mt-6 max-w-3xl flex flex-col gap-3">
             <h3 className="font-label-lg text-secondary pl-1">Your Workspaces</h3>
             {recentTeams.map(team => (
-              <div key={team.id} className="w-full bg-surface-container-lowest rounded-xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 border border-outline-variant hover:border-primary/30 transition-colors">
+              <div key={team.id} className="w-full bg-surface-container-lowest rounded-xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 border border-outline-variant hover:border-primary/30 transition-all hover:shadow-md">
                 <div className="flex items-center gap-3 w-full md:w-auto">
                   <div className="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-primary shrink-0">
                     <History size={18} />

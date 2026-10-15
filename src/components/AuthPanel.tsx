@@ -92,7 +92,7 @@ export const AuthPanel: React.FC = () => {
   }
 
   return (
-    <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-xl p-6 shadow-sm mx-auto my-12">
+    <div className="w-full flex flex-col">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 bg-primary/10 text-primary rounded-lg flex items-center justify-center">
           {isLogin ? <LogIn size={20} /> : <UserPlus size={20} />}

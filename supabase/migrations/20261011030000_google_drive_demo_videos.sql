@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS public.team_demo_videos (
   web_view_link text NOT NULL,
   size_bytes bigint DEFAULT 0 CHECK (size_bytes >= 0),
   mime_type text DEFAULT 'video/mp4',
+  sharing_access text NOT NULL DEFAULT 'restricted' CHECK (sharing_access IN ('restricted', 'anyone_with_link')),
   created_at timestamptz DEFAULT now() NOT NULL
 );
 

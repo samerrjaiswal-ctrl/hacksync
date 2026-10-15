@@ -5,6 +5,7 @@ import { AuthPanel } from './components/AuthPanel';
 import { supabase } from './lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 import { LogOut, Loader2, Users, AlertCircle } from 'lucide-react';
+import Iridescence from './components/Iridescence';
 import './App.css';
 
 function App() {
@@ -228,7 +229,12 @@ function App() {
   };
 
   if (isInitializing) {
-    return <div className="min-h-screen bg-surface flex items-center justify-center font-body-md text-on-surface"><Loader2 size={32} className="animate-spin text-primary" /></div>;
+    return (
+      <div className="min-h-screen bg-surface flex flex-col items-center justify-center font-body-md text-on-surface view-transition-container gap-3">
+        <Loader2 size={36} className="animate-spin text-primary" />
+        <span className="font-label-md text-secondary tracking-wide">Initializing HackSync...</span>
+      </div>
+    );
   }
 
   return (
@@ -246,62 +252,86 @@ function App() {
       )}
       
       {!session || (currentView === 'landing' && session.user.app_metadata?.is_guest) ? (
-        <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-4 lg:p-8">
-          
-          <div className="w-full relative [perspective:1400px]">
-            <div 
-              className={`w-full relative motion-safe:transition-transform motion-safe:duration-[750ms] motion-reduce:transition-none [transform-style:preserve-3d] grid ${showJoinMode ? '[transform:rotateY(180deg)]' : ''}`}
-              style={{ transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
-            >
-              
-              {/* FRONT FACE: AUTHENTICATION */}
-              <div 
-                className={`w-full [grid-area:1/1] [backface-visibility:hidden] flex flex-col ${showJoinMode ? 'pointer-events-none' : ''}`}
-                inert={showJoinMode ? true : undefined}
-                aria-hidden={showJoinMode}
-              >
-                <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 shadow-sm flex flex-col items-center">
-                  <div className="mb-6 text-center w-full">
-                    <div className="flex items-center justify-center mb-4">
-                      <img src="/logo.png" alt="HackSync Logo" className="h-14 w-auto drop-shadow-sm" />
-                    </div>
-                    <p className="text-secondary font-body-md">Sign in to join your team workspace.</p>
-                  </div>
-                  
-                  {joinError && (
-                    <div className="w-full mb-4 p-3 bg-error-container text-on-error-container rounded-lg text-body-sm flex items-start gap-2 animate-fade-in shadow-sm">
-                      <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                      <span>{joinError}</span>
-                    </div>
-                  )}
+        <div key="auth-view" className="relative flex-1 w-full min-h-screen flex flex-col items-center justify-center p-4 lg:p-8 overflow-hidden bg-surface view-transition-container">
+          {/* Iridescence WebGL Background */}
+          <div className="absolute inset-0 z-0 pointer-events-auto overflow-hidden">
+            <Iridescence
+              color="#8099cc"
+              hueShift={0}
+              saturation={1}
+              brightness={1.5}
+              contrast={1}
+              speed={1}
+              scale={1}
+              detail={8}
+              warp={1}
+              rotation={0}
+              mouseReact={true}
+              amplitude={0.1}
+              stir={0.5}
+              sheen={0.3}
+              clickSwirl={true}
+              grain={0}
+              fade={0}
+              className="w-full h-full"
+            />
+            {/* Soft frosted gradient overlay so auth card remains ultra-crisp & readable */}
+            <div className="absolute inset-0 bg-white/35 dark:bg-[#070b14]/45 pointer-events-none" />
+          </div>
 
-                  {pendingInviteCode.trim() && !joinError ? (
-                    <div className="w-full mb-4 p-3 bg-primary-container text-on-primary-container rounded-lg text-body-sm flex items-center justify-between animate-fade-in shadow-sm">
-                      <span>Code <strong>{pendingInviteCode}</strong> ready. Sign in to join.</span>
+          <div className="relative z-10 w-full max-w-md mx-auto flex flex-col items-center justify-center">
+            <div className="flip-card-perspective">
+              <div className={`flip-card-inner ${showJoinMode ? 'is-flipped' : ''}`}>
+                
+                {/* FRONT FACE: AUTHENTICATION */}
+                <div 
+                  className={`flip-card-front flex flex-col ${showJoinMode ? 'pointer-events-none' : 'pointer-events-auto'}`}
+                  inert={showJoinMode ? true : undefined}
+                  aria-hidden={showJoinMode}
+                >
+                  <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 shadow-sm flex flex-col items-center">
+                    <div className="mb-6 text-center w-full">
+                      <div className="flex items-center justify-center mb-4">
+                        <img src="/logo.png" alt="HackSync Logo" className="h-14 w-auto drop-shadow-sm" />
+                      </div>
+                      <p className="text-secondary font-body-md">Sign in to join your team workspace.</p>
                     </div>
-                  ) : null}
-                  
-                  <AuthPanel />
-                  
-                  <div className="mt-6 pt-4 border-t border-outline-variant w-full text-center">
-                    <button 
-                      type="button"
-                      onClick={() => setShowJoinMode(true)}
-                      className="text-primary font-label-md hover:underline transition-colors"
-                    >
-                      Join with Team Code
-                    </button>
+                    
+                    {joinError && (
+                      <div className="w-full mb-4 p-3 bg-error-container text-on-error-container rounded-lg text-body-sm flex items-start gap-2 animate-fade-in shadow-sm">
+                        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                        <span>{joinError}</span>
+                      </div>
+                    )}
+
+                    {pendingInviteCode.trim() && !joinError ? (
+                      <div className="w-full mb-4 p-3 bg-primary-container text-on-primary-container rounded-lg text-body-sm flex items-center justify-between animate-fade-in shadow-sm">
+                        <span>Code <strong>{pendingInviteCode}</strong> ready. Sign in to join.</span>
+                      </div>
+                    ) : null}
+                    
+                    <AuthPanel />
+                    
+                    <div className="mt-6 pt-4 border-t border-outline-variant w-full text-center">
+                      <button
+                        id="join-with-code-btn"
+                        type="button"
+                        onClick={() => setShowJoinMode(true)}
+                        className="text-primary font-label-md hover:underline transition-colors cursor-pointer"
+                      >
+                        Join with Team Code
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              {/* BACK FACE: JOIN WITH CODE */}
-              <div 
-                className={`w-full [grid-area:1/1] [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col ${!showJoinMode ? 'pointer-events-none' : ''}`}
-                inert={!showJoinMode ? true : undefined}
-                aria-hidden={!showJoinMode}
-              >
-                <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 shadow-sm flex flex-col h-full">
+                
+                {/* BACK FACE: JOIN WITH CODE */}
+                <div 
+                  className={`flip-card-back flex flex-col ${!showJoinMode ? 'pointer-events-none' : 'pointer-events-auto'}`}
+                  inert={!showJoinMode ? true : undefined}
+                  aria-hidden={!showJoinMode}
+                >
+                  <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 shadow-sm flex flex-col h-full">
                    <div className="flex items-center justify-between gap-3 mb-6">
                      <div className="flex items-center gap-3">
                        <div className="w-10 h-10 bg-primary/10 text-primary rounded-lg flex items-center justify-center">
@@ -397,9 +427,10 @@ function App() {
                    
                    <div className="mt-auto pt-6 border-t border-outline-variant text-center">
                      <button 
+                       id="back-to-signin-btn"
                        type="button"
                        onClick={() => setShowJoinMode(false)}
-                       className="text-secondary font-label-md hover:text-on-surface transition-colors flex items-center justify-center gap-1 mx-auto"
+                       className="text-secondary font-label-md hover:text-on-surface transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
                      >
                        ← Back
                      </button>
@@ -410,23 +441,28 @@ function App() {
             </div>
           </div>
         </div>
+      </div>
       ) : currentView === 'landing' ? (
-        <TeamLanding 
-          onEnterWorkspace={handleEnterWorkspace} 
-          session={session} 
-          initialJoinCode={pendingInviteCode}
-          initialJoinError={joinError}
-          onClearInitialJoin={() => {
-            setPendingInviteCode('');
-            setJoinError('');
-          }}
-        />
+        <div key="landing-view" className="view-transition-container w-full min-h-screen flex flex-col flex-1">
+          <TeamLanding 
+            onEnterWorkspace={handleEnterWorkspace} 
+            session={session} 
+            initialJoinCode={pendingInviteCode}
+            initialJoinError={joinError}
+            onClearInitialJoin={() => {
+              setPendingInviteCode('');
+              setJoinError('');
+            }}
+          />
+        </div>
       ) : (
-        <TeamWorkspace 
-          teamId={teamId} 
-          teamName={teamName} 
-          onLeave={handleLeaveWorkspace} 
-        />
+        <div key={`workspace-view-${teamId}`} className="view-transition-container w-full min-h-screen flex flex-col flex-1">
+          <TeamWorkspace 
+            teamId={teamId} 
+            teamName={teamName} 
+            onLeave={handleLeaveWorkspace} 
+          />
+        </div>
       )}
     </div>
   );

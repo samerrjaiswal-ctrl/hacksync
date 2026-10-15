@@ -282,7 +282,7 @@ serve(async (req) => {
     }
 
     // Helper function to get valid access token
-    async function getValidGoogleAccessToken(): Promise<string> {
+    async function getValidGoogleAccessToken(forceRefresh = false): Promise<string> {
       const { data: tokenRow, error: tErr } = await supabaseAdmin
         .from('team_google_drive_tokens')
         .select('*')
@@ -296,8 +296,8 @@ serve(async (req) => {
       const now = new Date()
       const expiry = tokenRow.expires_at ? new Date(tokenRow.expires_at) : new Date(0)
 
-      // If token is still valid (with 5 min safety buffer), return it
-      if (tokenRow.access_token && (expiry.getTime() - now.getTime()) > 300000) {
+      // If token is still valid (with 5 min safety buffer), return it unless forceRefresh is requested
+      if (!forceRefresh && tokenRow.access_token && (expiry.getTime() - now.getTime()) > 300000) {
         return tokenRow.access_token
       }
 
@@ -434,16 +434,41 @@ serve(async (req) => {
         description: description || `Uploaded via HackSync by ${user.user_metadata?.full_name || user.email}`
       }
 
-      const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
+      // Extract origin so Google Drive enables CORS for direct browser PUT upload
+      const clientOrigin = req.headers.get('origin') || 'http://localhost:5173'
+
+      let activeAccessToken = accessToken
+      let initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${activeAccessToken}`,
           'Content-Type': 'application/json; charset=UTF-8',
           'X-Upload-Content-Type': mimeType || 'video/mp4',
-          'X-Upload-Content-Length': String(fileSize || 0)
+          'X-Upload-Content-Length': String(fileSize || 0),
+          'Origin': clientOrigin
         },
         body: JSON.stringify(metadata)
       })
+
+      // If Google returns 401 (e.g. stale/invalidated token), auto-refresh token and retry once
+      if (initRes.status === 401) {
+        try {
+          activeAccessToken = await getValidGoogleAccessToken(true)
+          initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${activeAccessToken}`,
+              'Content-Type': 'application/json; charset=UTF-8',
+              'X-Upload-Content-Type': mimeType || 'video/mp4',
+              'X-Upload-Content-Length': String(fileSize || 0),
+              'Origin': clientOrigin
+            },
+            body: JSON.stringify(metadata)
+          })
+        } catch (rErr) {
+          console.error('Auto token refresh on 401 failed:', rErr)
+        }
+      }
 
       if (!initRes.ok) {
         const errText = await initRes.text()
@@ -471,7 +496,7 @@ serve(async (req) => {
     // ACTION: COMPLETE-UPLOAD
     // ==========================================
     if (action === 'complete-upload') {
-      const { googleFileId, title, description, sizeBytes, mimeType } = body
+      const { googleFileId, title, description, sizeBytes, mimeType, sharingAccess } = body
       if (!googleFileId || !title) {
         return new Response(JSON.stringify({ error: 'googleFileId and title are required' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -480,6 +505,31 @@ serve(async (req) => {
       }
 
       const accessToken = await getValidGoogleAccessToken()
+
+      // Handle optional explicit hackathon submission sharing set by leader during upload
+      let finalSharingAccess = 'restricted'
+      if (isLeader && sharingAccess === 'anyone_with_link') {
+        try {
+          const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${googleFileId}/permissions`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              role: 'reader',
+              type: 'anyone'
+            })
+          })
+          if (permRes.ok) {
+            finalSharingAccess = 'anyone_with_link'
+          } else {
+            console.warn('Failed to set public permission on Google Drive file:', await permRes.text())
+          }
+        } catch (pErr) {
+          console.error('Error applying anyone_with_link permission during upload:', pErr)
+        }
+      }
 
       // Fetch the REAL webViewLink directly from Google Drive API
       const fileRes = await fetch(
@@ -515,7 +565,8 @@ serve(async (req) => {
           google_file_id: googleFileId,
           web_view_link: webViewLink,
           size_bytes: sizeBytes || (fileData.size ? parseInt(fileData.size) : 0),
-          mime_type: mimeType || fileData.mimeType || 'video/mp4'
+          mime_type: mimeType || fileData.mimeType || 'video/mp4',
+          sharing_access: finalSharingAccess
         })
         .select('*, profiles(display_name)')
         .single()
@@ -531,6 +582,144 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       })
+    }
+
+    // ==========================================
+    // ACTION: UPDATE-SHARING (Leader only)
+    // ==========================================
+    if (action === 'update-sharing') {
+      if (!isLeader) {
+        return new Response(JSON.stringify({ error: 'Only the team leader can update video sharing permissions' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 403
+        })
+      }
+
+      const { videoId, sharingAccess } = body
+      if (!videoId || (sharingAccess !== 'restricted' && sharingAccess !== 'anyone_with_link')) {
+        return new Response(JSON.stringify({ error: 'Valid videoId and sharingAccess ("restricted" or "anyone_with_link") are required' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400
+        })
+      }
+
+      // Validate video belongs to team
+      const { data: videoRow, error: vErr } = await supabaseAdmin
+        .from('team_demo_videos')
+        .select('id, team_id, google_file_id, web_view_link, sharing_access')
+        .eq('id', videoId)
+        .eq('team_id', teamId)
+        .single()
+
+      if (vErr || !videoRow) {
+        return new Response(JSON.stringify({ error: 'Video not found in team library' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 404
+        })
+      }
+
+      const accessToken = await getValidGoogleAccessToken()
+
+      if (sharingAccess === 'anyone_with_link') {
+        // Set Google Drive file permission: type="anyone", role="reader"
+        // Note: This applies strictly to this single file, NOT the parent folder or other files.
+        const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${videoRow.google_file_id}/permissions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            role: 'reader',
+            type: 'anyone'
+          })
+        })
+
+        if (!permRes.ok) {
+          const errText = await permRes.text()
+          return new Response(JSON.stringify({ 
+            error: 'Failed to update Google Drive permission to anyone with the link', 
+            details: errText 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400
+          })
+        }
+
+        // Fetch fresh webViewLink from Google Drive
+        let webViewLink = videoRow.web_view_link
+        const freshRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${videoRow.google_file_id}?fields=id,webViewLink`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        )
+        if (freshRes.ok) {
+          const freshData = await freshRes.json()
+          if (freshData.webViewLink) {
+            webViewLink = freshData.webViewLink
+          }
+        }
+
+        const { error: updateErr } = await supabaseAdmin
+          .from('team_demo_videos')
+          .update({
+            sharing_access: 'anyone_with_link',
+            web_view_link: webViewLink
+          })
+          .eq('id', videoId)
+
+        if (updateErr) {
+          throw updateErr
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          sharingAccess: 'anyone_with_link',
+          webViewLink
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        })
+      } else {
+        // Revert to restricted: find and remove any "anyone" permission
+        try {
+          const listPermsRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${videoRow.google_file_id}/permissions?fields=permissions(id,type,role)`,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+          )
+          if (listPermsRes.ok) {
+            const permsData = await listPermsRes.json()
+            const anyonePerm = (permsData.permissions || []).find((p: any) => p.type === 'anyone')
+            if (anyonePerm?.id) {
+              await fetch(`https://www.googleapis.com/drive/v3/files/${videoRow.google_file_id}/permissions/${anyonePerm.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+              })
+            }
+          }
+        } catch (delPermErr) {
+          console.warn('Error removing anyone permission:', delPermErr)
+        }
+
+        const { error: updateErr } = await supabaseAdmin
+          .from('team_demo_videos')
+          .update({
+            sharing_access: 'restricted'
+          })
+          .eq('id', videoId)
+
+        if (updateErr) {
+          throw updateErr
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          sharingAccess: 'restricted',
+          webViewLink: videoRow.web_view_link
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        })
+      }
     }
 
     // ==========================================
@@ -592,6 +781,68 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       })
+    }
+
+    // ==========================================
+    // ACTION: CHECK-PROCESSING
+    // ==========================================
+    if (action === 'check-processing') {
+      const { googleFileId } = body
+      if (!googleFileId) {
+        return new Response(JSON.stringify({ error: 'googleFileId is required' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400
+        })
+      }
+
+      try {
+        const accessToken = await getValidGoogleAccessToken()
+        const checkRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${googleFileId}?fields=id,name,mimeType,videoMediaMetadata,thumbnailLink,webViewLink`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        )
+
+        if (!checkRes.ok) {
+          const errText = await checkRes.text()
+          console.warn('Google Drive check status returned non-200:', checkRes.status, errText)
+          // Return 200 with isProcessing: true so client polling continues smoothly
+          return new Response(JSON.stringify({
+            isProcessing: true,
+            isPlayable: false,
+            message: 'Google Drive is currently processing or rate-limiting check. Retrying...',
+            googleStatus: checkRes.status
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200
+          })
+        }
+
+        const fileData = await checkRes.json()
+        // Google Drive sets videoMediaMetadata and thumbnailLink once processing is complete
+        const isPlayable = Boolean(fileData.videoMediaMetadata?.durationMillis || fileData.thumbnailLink)
+
+        return new Response(JSON.stringify({
+          isProcessing: !isPlayable,
+          isPlayable,
+          thumbnailLink: fileData.thumbnailLink || null,
+          videoMediaMetadata: fileData.videoMediaMetadata || null,
+          webViewLink: fileData.webViewLink
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        })
+      } catch (err: any) {
+        console.warn('Error during check-processing:', err.message)
+        return new Response(JSON.stringify({
+          isProcessing: true,
+          isPlayable: false,
+          warning: err.message,
+          message: 'Transcoding check in progress'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        })
+      }
     }
 
     return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {

@@ -107,7 +107,7 @@ export const CreateTeam: React.FC<CreateTeamProps> = ({ onCreate, session }) => 
              <div className="p-3 bg-surface-container-low border border-outline-variant rounded flex items-center justify-between animate-fade-in">
                 <div className="flex flex-col">
                   <span className="font-mono-metadata text-mono-metadata text-secondary">Team Code</span>
-                  <span className="font-mono-code text-headline-sm text-primary tracking-wider font-semibold">{joinCode}</span>
+                  <span id="generated-team-code" className="font-mono-code text-headline-sm text-primary tracking-wider font-semibold">{joinCode}</span>
                 </div>
                 <button 
                   onClick={copyGeneratedId}
